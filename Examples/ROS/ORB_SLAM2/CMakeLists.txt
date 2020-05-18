@@ -48,7 +48,15 @@ ${PROJECT_SOURCE_DIR}/../../../include
 ${Pangolin_INCLUDE_DIRS}
 )
 
+# 因为编译双目和rgbd出现问题所以需要另外手动添加libboost中的库
+set( LIB_BOOST_SYSTEM_DIR /usr/lib/x86_64-linux-gnu)
+add_library(libboost_system SHARED IMPORTED)
+set_target_properties(libboost_system PROPERTIES IMPORTED_LOCATION 
+    ${LIB_BOOST_SYSTEM_DIR}/libboost_system.so)
+
+
 set(LIBS 
+libboost_system
 ${OpenCV_LIBS} 
 ${EIGEN3_LIBS}
 ${Pangolin_LIBRARIES}
