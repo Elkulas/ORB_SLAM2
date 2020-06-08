@@ -44,7 +44,9 @@ if(NOT OpenCV_FOUND)
 endif()
 
 find_package(Eigen3 3.1.0 REQUIRED)
+message(STATUS "Eigen3 include path: ${EIGEN3_INCLUDE_DIR}")
 find_package(Pangolin REQUIRED)
+message(STATUS "Pangolin include path: ${Pangolin_INCLUDE_DIRS}")
 
 include_directories(
 ${PROJECT_SOURCE_DIR}
