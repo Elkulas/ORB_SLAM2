@@ -120,3 +120,11 @@ add_executable(mono_euroc
 Examples/Monocular/mono_euroc.cc)
 target_link_libraries(mono_euroc ${PROJECT_NAME})
 
+# my IR mono 
+add_executable(mono_ir 
+Examples/Monocular/mono_IR.cc)
+target_link_libraries(mono_ir 
+irdirectsdk
+udev
+${PROJECT_NAME})
+
