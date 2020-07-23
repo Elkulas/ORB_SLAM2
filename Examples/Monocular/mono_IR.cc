@@ -17,7 +17,7 @@ using namespace std;
 // 参数文件与字典文件
 // 如果你系统上的路径不同，请修改它
 string parameterFile = "./irsetting/mono_ir.yaml";
-string vocFile = "./irsetting/ORBvoc.txt";
+string vocFile = "../../Vocabulary/ORBvoc.txt";
  
 int main(int argc, char **argv) {
  
