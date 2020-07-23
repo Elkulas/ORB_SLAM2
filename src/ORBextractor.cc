@@ -535,7 +535,18 @@ void ExtractorNode::DivideNode(ExtractorNode &n1, ExtractorNode &n2, ExtractorNo
         n4.bNoMore = true;
 
 }
-
+/**
+ * @brief 使用四叉树法对一个图像金字塔图层中的特征点进行平均和分发
+ * 
+ * @param[in] vToDistributeKeys     等待进行分配到四叉树中的特征点
+ * @param[in] minX                  当前图层的图像的边界，坐标都是在“半径扩充图像”坐标系下的坐标
+ * @param[in] maxX 
+ * @param[in] minY 
+ * @param[in] maxY 
+ * @param[in] N                     希望提取出的特征点个数
+ * @param[in] level                 指定的金字塔图层，并未使用
+ * @return vector<cv::KeyPoint>     已经均匀分散好的特征点vector容器
+ */
 vector<cv::KeyPoint> ORBextractor::DistributeOctTree(const vector<cv::KeyPoint>& vToDistributeKeys, const int &minX,
                                        const int &maxX, const int &minY, const int &maxY, const int &N, const int &level)
 {
