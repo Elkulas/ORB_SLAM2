@@ -234,11 +234,17 @@ cv::Mat Tracking::GrabImageRGBD(const cv::Mat &imRGB,const cv::Mat &imD, const d
     return mCurrentFrame.mTcw.clone();
 }
 
-
+/* * * * * * * * * * * * * * *
+ * 输入左目RGB或者RGBA图像
+ * 1. 将图像转为mimGray并初始化mCurrentFrame
+ * 2. 进行tracking
+ * 输出世界坐标系到该帧相机坐标系的变换矩阵
+ * 
+ */
 cv::Mat Tracking::GrabImageMonocular(const cv::Mat &im, const double &timestamp)
 {
     mImGray = im;
-
+    // 转换灰度图像 
     if(mImGray.channels()==3)
     {
         if(mbRGB)
@@ -253,12 +259,12 @@ cv::Mat Tracking::GrabImageMonocular(const cv::Mat &im, const double &timestamp)
         else
             cvtColor(mImGray,mImGray,CV_BGRA2GRAY);
     }
-
+    // 构造Frame
     if(mState==NOT_INITIALIZED || mState==NO_IMAGES_YET)
         mCurrentFrame = Frame(mImGray,timestamp,mpIniORBextractor,mpORBVocabulary,mK,mDistCoef,mbf,mThDepth);
     else
         mCurrentFrame = Frame(mImGray,timestamp,mpORBextractorLeft,mpORBVocabulary,mK,mDistCoef,mbf,mThDepth);
-
+    // 跟踪
     Track();
 
     return mCurrentFrame.mTcw.clone();
@@ -276,11 +282,14 @@ void Tracking::Track()
     // Get Map Mutex -> Map cannot be changed
     unique_lock<mutex> lock(mpMap->mMutexMapUpdate);
 
+    // Step 1: 初始化
     if(mState==NOT_INITIALIZED)
     {
         if(mSensor==System::STEREO || mSensor==System::RGBD)
+            // 双目和rgbd共用一个初始化函数
             StereoInitialization();
         else
+            // 单目初始化
             MonocularInitialization();
 
         mpFrameDrawer->Update(this);
@@ -560,12 +569,19 @@ void Tracking::StereoInitialization()
     }
 }
 
+/*
+ * @brief 单目的地图初始化
+ *
+ * 并行地计算基础矩阵和单应性矩阵，选取其中一个模型，恢复出最开始两帧之间的相对姿态以及点云
+ * 得到初始两帧的匹配、相对运动、初始MapPoints
+ */
 void Tracking::MonocularInitialization()
 {
-
+    // Step 1: 如果单目初始器还没有被创建，则创建。后面如果重新初始化会清除掉这个
     if(!mpInitializer)
     {
         // Set Reference Frame
+        // 当前帧特征点必须大于100
         if(mCurrentFrame.mvKeys.size()>100)
         {
             mInitialFrame = Frame(mCurrentFrame);
@@ -587,6 +603,8 @@ void Tracking::MonocularInitialization()
     else
     {
         // Try to initialize
+        // Step 2: 如果当前帧特征点数太少，则重新构造初始器
+        // NOTICE: 只有连续两帧的特征点个数都大于100时，才可以继续初始化过程
         if((int)mCurrentFrame.mvKeys.size()<=100)
         {
             delete mpInitializer;
@@ -596,10 +614,26 @@ void Tracking::MonocularInitialization()
         }
 
         // Find correspondences
-        ORBmatcher matcher(0.9,true);
-        int nmatches = matcher.SearchForInitialization(mInitialFrame,mCurrentFrame,mvbPrevMatched,mvIniMatches,100);
+        // Step 3: 在mInitialFrame和mCurrentFrame中寻找匹配的特征点对
+        // 构建匹配的实例
+        ORBmatcher matcher(
+            0.9,                // 最佳点和次佳特征点评分的比值阈值。此处比较宽松，tracking时一般是0.7
+            true                // 检查特征点的方向
+            );
+        
+        // 对mInitialFrame,mCurrentFrame进行特征点匹配操作
+        // mvbPrevMatched为参考帧的特征点坐标，初始化存储的是mInitialFrame中的特征点坐标，匹配结束之后就是当前帧的特征点坐标，做一个帧帧之间的迭代操作
+        // mvIniMatches 保存参考帧F1中特征点是否匹配上，index保存的是F1对应特征点索引，值保存的是匹配好的F2特征点索引
+        int nmatches = matcher.SearchForInitialization(
+            mInitialFrame,                  // 初始化时的参考帧
+            mCurrentFrame,                  // 初始化时的当前帧
+            mvbPrevMatched,                 // 在初始化参考帧中提取得到的特征点
+            mvIniMatches,                   // 保存匹配的关系
+            100                             // 搜索窗口大小
+            );
 
         // Check if there are enough correspondences
+        // Step 4: 验证匹配结果，如果初始化的两帧之间的匹配点太少，重新初始化
         if(nmatches<100)
         {
             delete mpInitializer;
@@ -611,8 +645,16 @@ void Tracking::MonocularInitialization()
         cv::Mat tcw; // Current Camera Translation
         vector<bool> vbTriangulated; // Triangulated Correspondences (mvIniMatches)
 
-        if(mpInitializer->Initialize(mCurrentFrame, mvIniMatches, Rcw, tcw, mvIniP3D, vbTriangulated))
+        // Step 5: 通过H模型或者是F模型进行单目的初始化，得到两帧之间相对的运动以及初始的MapPoinys
+        if(mpInitializer->Initialize(
+            mCurrentFrame,      // 当前帧
+            mvIniMatches,       // 当前帧和参考帧的特征点的匹配关系
+            Rcw, tcw,           // 初始化得到的相机的位姿
+            mvIniP3D,           // 进行三角化得到的空间点集合
+            vbTriangulated      // 对应于mvIniMatches来说，其中哪些点被三角化了
+            ))
         {
+            // Step 6: 初始化成功之后，删除那些无法进行三角化的匹配点
             for(size_t i=0, iend=mvIniMatches.size(); i<iend;i++)
             {
                 if(mvIniMatches[i]>=0 && !vbTriangulated[i])

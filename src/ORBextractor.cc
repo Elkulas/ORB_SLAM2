@@ -73,30 +73,64 @@ const int PATCH_SIZE = 31;
 const int HALF_PATCH_SIZE = 15;
 const int EDGE_THRESHOLD = 19;
 
-// 计算角度信息
+/**
+ * @brief 这个函数用于计算特征点的方向，这里是返回角度作为方向。
+ * 计算特征点方向是为了使得提取的特征点具有旋转不变性。
+ * 方法是灰度质心法：以几何中心和灰度质心的连线作为该特征点方向
+ * @param[in] image     要进行操作的某层金字塔图像
+ * @param[in] pt        当前特征点的坐标
+ * @param[in] u_max     图像块的每一行的坐标边界 u_max
+ * @return float        返回特征点的角度，范围为[0,360)角度，精度为0.3°
+ */
 static float IC_Angle(const Mat& image, Point2f pt,  const vector<int> & u_max)
 {
+    // 图像的矩
     int m_01 = 0, m_10 = 0;
 
+    // 获得这个特征点所在的图像块的中心点坐标灰度值的指针center（形心）
     const uchar* center = &image.at<uchar> (cvRound(pt.y), cvRound(pt.x));
 
     // Treat the center line differently, v=0
+    // 对中心线特殊对待，也就是v = 0的行
     for (int u = -HALF_PATCH_SIZE; u <= HALF_PATCH_SIZE; ++u)
+        
+        // 此处center的下标可以为负数，中心水平线上的像素按照x方向进行加权
         m_10 += u * center[u];
 
     // Go line by line in the circuI853lar patch
+    // step表示该图像0*一行包含的字节总数*，一行像素的有效宽度，用于移动指针来进行索引用
+    // 参考[https://blog.csdn.net/qianqing13579/article/details/45318279]
+    // 在进行变动的时候就是x坐标不变，y坐标+-1进行变动
     int step = (int)image.step1();
+
+    // 以v=0中心线作为对称轴，然后对称的在成对的上下两行中进行遍历，通过这种方式从一个四分之一圆扩展到整个圆
     for (int v = 1; v <= HALF_PATCH_SIZE; ++v)
     {
         // Proceed over the two lines
         int v_sum = 0;
+
+        // 获取该行最大的像素横坐标范围
+        // 也就是四分之一圆上的范围
         int d = u_max[v];
+
+        // 横坐标进行遍历操作，本质上一次遍历两个，也就是一上一下
+        // 每次遍历的两个点坐标，中心点上就是(x,y)，中心点下就是(x,-y)
+        // 对于某次待处理的两个点：m_10 = Σ x*I(x,y) =  x*I(x,y) + x*I(x,-y) = x*(I(x,y) + I(x,-y))
+        // 对于某次待处理的两个点：m_01 = Σ y*I(x,y) =  y*I(x,y) - y*I(x,-y) = y*(I(x,y) - I(x,-y))
+        // 这里其实就是-y
         for (int u = -d; u <= d; ++u)
         {
+            // 得到需要进行加运算和减运算的具体像素灰度值
+            // 本质上就是u，v所对应的图像坐标上的灰度值
+            // val_plus: 在中心线上方x=u时候的像素灰度值
+            // val_minus: 在中心线下方x=u时候的像素灰度值
             int val_plus = center[u + v*step], val_minus = center[u - v*step];
+            // m01
             v_sum += (val_plus - val_minus);
+            // m10
             m_10 += u * (val_plus + val_minus);
         }
+        // 将这一行上的像素值进行y坐标加权
         m_01 += v * v_sum;
     }
 
@@ -407,21 +441,33 @@ static int bit_pattern_31_[256*4] =
     -1,-6, 0,-11/*mean (0.127148), correlation (0.547401)*/
 };
 
-ORBextractor::ORBextractor(int _nfeatures, float _scaleFactor, int _nlevels,
-         int _iniThFAST, int _minThFAST):
+// 特征点提取器的构造函数
+
+ORBextractor::ORBextractor( int _nfeatures,         // 指定要提取的特征点数目 
+                            float _scaleFactor,     // 制定金字塔的缩放系数
+                            int _nlevels,           // 制定图像金字塔的层数
+                            int _iniThFAST,         // 指定初始的FAST参数，可以提取出最明显的角点
+                            int _minThFAST):        // 如果图像纹理不够丰富提取出的特征点不多，为提出角点使用该参数
+
     nfeatures(_nfeatures), scaleFactor(_scaleFactor), nlevels(_nlevels),
-    iniThFAST(_iniThFAST), minThFAST(_minThFAST)
+    iniThFAST(_iniThFAST), minThFAST(_minThFAST)    // 初始传入的参数
 {
+    // 存储每层图像的缩放系数，调整大小为符合图层数目的大小
     mvScaleFactor.resize(nlevels);
+    // 存储sigma^2，也就是每层图像相对于初始图像缩放因子的平方
     mvLevelSigma2.resize(nlevels);
+    // 对于初始图像这两个参数都是1
     mvScaleFactor[0]=1.0f;
     mvLevelSigma2[0]=1.0f;
+    // 然后逐层计算图像金字塔中每一层图像相对于出使图像的缩放系数
     for(int i=1; i<nlevels; i++)
     {
+        // 累乘计算
         mvScaleFactor[i]=mvScaleFactor[i-1]*scaleFactor;
         mvLevelSigma2[i]=mvScaleFactor[i]*mvScaleFactor[i];
     }
 
+    // 两个vector保存上述两个参数的倒数
     mvInvScaleFactor.resize(nlevels);
     mvInvLevelSigma2.resize(nlevels);
     for(int i=0; i<nlevels; i++)
@@ -430,36 +476,78 @@ ORBextractor::ORBextractor(int _nfeatures, float _scaleFactor, int _nlevels,
         mvInvLevelSigma2[i]=1.0f/mvLevelSigma2[i];
     }
 
+    // 调整图像金字塔容器的大小为层数，这个容器存放各层图像大小
     mvImagePyramid.resize(nlevels);
 
+    // 调整图像金字塔特征数容器大小为层数，这个容器存放每一层图像所应当提取的特征点的数目
     mnFeaturesPerLevel.resize(nlevels);
+
+    // 缩放系数的倒数
     float factor = 1.0f / scaleFactor;
+
+    // [https://blog.csdn.net/luoshixian099/article/details/48523267]
+    // 一个系数，用来计算每一层应该有多少特征点
     float nDesiredFeaturesPerScale = nfeatures*(1 - factor)/(1 - (float)pow((double)factor, (double)nlevels));
 
+    // 累计已经分配的特征点数目
     int sumFeatures = 0;
+
+    // 逐层计算每一层要分配的特征点个数，低层图像除外，也就是最大的那层
+    // level=0是最高层
     for( int level = 0; level < nlevels-1; level++ )
     {
+        // 分配 cvRound：返回参数最接近的整数值
         mnFeaturesPerLevel[level] = cvRound(nDesiredFeaturesPerScale);
+        // 累计已经分配的特征点
         sumFeatures += mnFeaturesPerLevel[level];
+        // 更新系数，乘以factor
         nDesiredFeaturesPerScale *= factor;
     }
+    // 由于前面特征点是通过取整的操作，所以会导致剩下的一些特征点个数没有分配，把剩下的特征点分配到最底层，也就是最大的那层
     mnFeaturesPerLevel[nlevels-1] = std::max(nfeatures - sumFeatures, 0);
 
+    // 成员变量pattern的长度，也就是点的个数，这里的512表示512个点（上面的数组中是存储的坐标所以是256*2*2）
     const int npoints = 512;
+
+    // 获取用于计算BRIEF描述子的随机采样点点集头指针
+    // 注意到pattern0数据类型为Points*,bit_pattern_31_是int[]型，所以这里需要进行强制类型转换
     const Point* pattern0 = (const Point*)bit_pattern_31_;
+    
+    // 其实这里的操作就是，将在全局变量区域的、int格式的随机采样点以cv::point格式复制到当前类对象中的成员变量pattern中
+    // 这里操作也就一次
     std::copy(pattern0, pattern0 + npoints, std::back_inserter(pattern));
 
-    //This is for orientation
+    // This is for orientation
     // pre-compute the end of a row in a circular patch
+    // 下面内容与计算特征点旋转相关
+    // 预先计算圆形patch中行的结束位置,也就是坐标圆半径的长度
+    //       * * *
+    //     *      *
+    //     *      *
+    //       * * *
+    // 弧上点的横坐标
+    // v是y轴上，u是x轴上
+    // umax是一个向量，存储不同v所对应的x轴上的值
     umax.resize(HALF_PATCH_SIZE + 1);
 
-    int v, v0, vmax = cvFloor(HALF_PATCH_SIZE * sqrt(2.f) / 2 + 1);
+    // cvfloor返回不大于参数的最大整数，cvCeil返回不小于参数的最小整数值，cvRound四舍五入
+    int v,      // 循环辅助变量
+        v0,     // 辅助变量
+        vmax = cvFloor(HALF_PATCH_SIZE * sqrt(2.f) / 2 + 1);    // 计算元的最大行号，考虑中间行也就是最大行
+        // 这里说的最大行其实就是45°时候所取到的最大数值，vmin相比与vmax小了1
     int vmin = cvCeil(HALF_PATCH_SIZE * sqrt(2.f) / 2);
+
+    // 半径的平方
     const double hp2 = HALF_PATCH_SIZE*HALF_PATCH_SIZE;
+
+    // 利用圆的方程来计算每行像素的u的坐标边界，也就是八分之一圆周上点的x坐标的边界
+    // 本质上就是勾股定理，这里算出来是八分之一圆
     for (v = 0; v <= vmax; ++v)
         umax[v] = cvRound(sqrt(hp2 - v * v));
 
     // Make sure we are symmetric
+    // 倒过来算，算上半个八分之一圆，从y方向最大到中间
+    // 做完四分之一圆之后剩下的部分可以直接镜像操作
     for (v = HALF_PATCH_SIZE, v0 = 0; v >= vmin; --v)
     {
         while (umax[v0] == umax[v0 + 1])
@@ -471,6 +559,7 @@ ORBextractor::ORBextractor(int _nfeatures, float _scaleFactor, int _nlevels,
 
 static void computeOrientation(const Mat& image, vector<KeyPoint>& keypoints, const vector<int>& umax)
 {
+    // 遍历特征点
     for (vector<KeyPoint>::iterator keypoint = keypoints.begin(),
          keypointEnd = keypoints.end(); keypoint != keypointEnd; ++keypoint)
     {

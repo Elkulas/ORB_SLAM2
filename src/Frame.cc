@@ -329,19 +329,42 @@ bool Frame::isInFrustum(MapPoint *pMP, float viewingCosLimit)
     return true;
 }
 
+/**
+ * @brief 找到在 以x,y为中心,半径为r的圆形内且金字塔层级在[minLevel, maxLevel]的特征点
+ * 
+ * @param[in] x                     特征点坐标x
+ * @param[in] y                     特征点坐标y
+ * @param[in] r                     搜索半径 
+ * @param[in] minLevel              最小金字塔层级
+ * @param[in] maxLevel              最大金字塔层级
+ * @return vector<size_t>           返回搜索到的候选匹配点id
+ */
 vector<size_t> Frame::GetFeaturesInArea(const float &x, const float  &y, const float  &r, const int minLevel, const int maxLevel) const
 {
     vector<size_t> vIndices;
     vIndices.reserve(N);
 
+    // Step 1 计算半径为r圆左右上下边界所在的网格列和行的id
+    // 查找半径为r的圆左侧边界所在网格列坐标。这个地方有点绕，慢慢理解下：
+    // (mnMaxX-mnMinX)/FRAME_GRID_COLS：表示列方向每个网格可以平均分得几个像素（肯定大于1），宽/网格数目
+    // mfGridElementWidthInv=FRAME_GRID_COLS/(mnMaxX-mnMinX) 是上面倒数，表示每个像素可以均分几个网格列（肯定小于1）
+	// (x-mnMinX-r)，可以看做是从图像的左边界mnMinX到半径r的圆的左边界区域占的像素列数
+	// 两者相乘，就是求出那个半径为r的圆的左侧边界在哪个网格列中
+    // 保证nMinCellX 结果大于等于0
+    // 得到像素长度，然后相乘之后就得到网格的id
     const int nMinCellX = max(0,(int)floor((x-mnMinX-r)*mfGridElementWidthInv));
+
+    // 如果x方向最小的网格数目大于所有的网格数目，也就是设定的上限，说明计算出错，找不到符合要求的特征点，返回空vector
     if(nMinCellX>=FRAME_GRID_COLS)
         return vIndices;
 
+    // 计算圆所在右边界网格列索引
     const int nMaxCellX = min((int)FRAME_GRID_COLS-1,(int)ceil((x-mnMinX+r)*mfGridElementWidthInv));
+    // 同样要是不合法直接返回
     if(nMaxCellX<0)
         return vIndices;
 
+    // 计算y方向上的网格索引
     const int nMinCellY = max(0,(int)floor((y-mnMinY-r)*mfGridElementHeightInv));
     if(nMinCellY>=FRAME_GRID_ROWS)
         return vIndices;
@@ -350,21 +373,32 @@ vector<size_t> Frame::GetFeaturesInArea(const float &x, const float  &y, const f
     if(nMaxCellY<0)
         return vIndices;
 
+    // 检查需要搜索的图像金字塔层数范围是否符合要求
+    // TODO: 前面满足后面必定满足
     const bool bCheckLevels = (minLevel>0) || (maxLevel>=0);
 
+    // Step 2: 遍历圆形区域内所有的网格，寻找满足条件的候选特征点，并将index放到输出里
     for(int ix = nMinCellX; ix<=nMaxCellX; ix++)
     {
         for(int iy = nMinCellY; iy<=nMaxCellY; iy++)
         {
+            // 获取这个网格内的所有特征点在 Frame::mvKeysUn中的索引
             const vector<size_t> vCell = mGrid[ix][iy];
+            // 如果这个网格内没有特征点，直接跳进下一个网格
             if(vCell.empty())
                 continue;
 
+            // 如果这个网格内存在特征点，那么遍历整个网格中所有的特征点
             for(size_t j=0, jend=vCell.size(); j<jend; j++)
             {
+                // 根据索引读出这个特征点
                 const cv::KeyPoint &kpUn = mvKeysUn[vCell[j]];
+
+                // 保证给定的搜索金字塔层级范围合法
                 if(bCheckLevels)
                 {
+                    // cv::KeyPoint::octave中表示的是从金字塔的哪一层提取的数据
+                    // 保证是从minlevel和maxlevel中间提取的
                     if(kpUn.octave<minLevel)
                         continue;
                     if(maxLevel>=0)
@@ -372,9 +406,11 @@ vector<size_t> Frame::GetFeaturesInArea(const float &x, const float  &y, const f
                             continue;
                 }
 
+                // 通过检查，计算候选特征点到圆中心的距离，查看是否在这个圆形区域内
                 const float distx = kpUn.pt.x-x;
                 const float disty = kpUn.pt.y-y;
 
+                // 如果是那么便把这个点的index存进去
                 if(fabs(distx)<r && fabs(disty)<r)
                     vIndices.push_back(vCell[j]);
             }

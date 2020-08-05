@@ -402,48 +402,85 @@ int ORBmatcher::SearchByProjection(KeyFrame* pKF, cv::Mat Scw, const vector<MapP
     return nmatches;
 }
 
+/**
+ * @brief 单目初始化中用于参考帧和当前帧的特征点匹配
+ * 步骤
+ * Step 1 构建旋转直方图
+ * Step 2 在半径窗口内搜索当前帧F2中所有的候选匹配特征点 
+ * Step 3 遍历搜索搜索窗口中的所有潜在的匹配候选点，找到最优的和次优的
+ * Step 4 对最优次优结果进行检查，满足阈值、最优/次优比例，删除重复匹配
+ * Step 5 计算匹配点旋转角度差所在的直方图
+ * Step 6 筛除旋转直方图中“非主流”部分
+ * Step 7 将最后通过筛选的匹配好的特征点保存
+ * @param[in] F1                        初始化参考帧                  
+ * @param[in] F2                        当前帧
+ * @param[in & out] vbPrevMatched       本来存储的是参考帧的所有特征点坐标，该函数更新为匹配好的当前帧的特征点坐标
+ * @param[in & out] vnMatches12         保存参考帧F1中特征点是否匹配上，index保存是F1对应特征点索引，值保存的是匹配好的F2特征点索引
+ * @param[in] windowSize                搜索窗口
+ * @return int                          返回成功匹配的特征点数目
+ */
 int ORBmatcher::SearchForInitialization(Frame &F1, Frame &F2, vector<cv::Point2f> &vbPrevMatched, vector<int> &vnMatches12, int windowSize)
 {
     int nmatches=0;
+
+    // F1中特征点和F2中的匹配关系，是按照F1中的特征点数目来进行空间分配
     vnMatches12 = vector<int>(F1.mvKeysUn.size(),-1);
 
+    // Step 1: 构建旋转直方图 HISIO_LENGTH = 30
     vector<int> rotHist[HISTO_LENGTH];
     for(int i=0;i<HISTO_LENGTH;i++)
         rotHist[i].reserve(500);
+    
+    // TODO: 此处可能有问题
     const float factor = 1.0f/HISTO_LENGTH;
 
+    // 匹配点对的距离，按照F2特征点数目分配空间
     vector<int> vMatchedDistance(F2.mvKeysUn.size(),INT_MAX);
+    // 从帧2到帧1的一个反向匹配，按照F2特征点数目进行空间的分配
     vector<int> vnMatches21(F2.mvKeysUn.size(),-1);
 
+    // 遍历帧1中所有的特征点
     for(size_t i1=0, iend1=F1.mvKeysUn.size(); i1<iend1; i1++)
     {
+        // 取出一个F1上的特征点
         cv::KeyPoint kp1 = F1.mvKeysUn[i1];
         int level1 = kp1.octave;
+        // 只使用原始图像上提取的特征点
         if(level1>0)
             continue;
 
+        // Step 2: 在半径窗口内搜索当前帧F2内所有的候选匹配特征点
+        // vbPrevMatched 输入参考帧 F1中的特征点
+        // window = 100, 输入最小最大金字塔层级均为0 
         vector<size_t> vIndices2 = F2.GetFeaturesInArea(vbPrevMatched[i1].x,vbPrevMatched[i1].y, windowSize,level1,level1);
 
         if(vIndices2.empty())
             continue;
 
+        // 取出参考帧F1中当前遍历特征点对应的描述子
         cv::Mat d1 = F1.mDescriptors.row(i1);
 
+        // 最佳的距离
         int bestDist = INT_MAX;
+        // 次佳的距离
         int bestDist2 = INT_MAX;
         int bestIdx2 = -1;
 
+        // Step 3: 遍历搜索搜索窗口中的所有潜在的匹配候选点，找到最优的和次优的
         for(vector<size_t>::iterator vit=vIndices2.begin(); vit!=vIndices2.end(); vit++)
         {
             size_t i2 = *vit;
 
+            // 取出候选特征点所对应的描述子
             cv::Mat d2 = F2.mDescriptors.row(i2);
 
+            // 计算两个特征点描述子之间的距离
             int dist = DescriptorDistance(d1,d2);
 
             if(vMatchedDistance[i2]<=dist)
                 continue;
-
+            
+            // 如果当前距离小于已有的最小距离，那么更新最佳和次佳的距离
             if(dist<bestDist)
             {
                 bestDist2=bestDist;
@@ -456,25 +493,36 @@ int ORBmatcher::SearchForInitialization(Frame &F1, Frame &F2, vector<cv::Point2f
             }
         }
 
+        // Step 4: 对最优次优结果进行检查，满足阈值、最优/次优的比例，删除重复匹配
+        // 即使算出了最佳描述子匹配距离，也不一定保证配对成功，需要小于设定的阈值
         if(bestDist<=TH_LOW)
         {
+            // 最佳距离比次佳距离要小于设定的比例
             if(bestDist<(float)bestDist2*mfNNratio)
             {
+                // 如果找到的候选特征点对应F1中特征点已经匹配过了，说明发生了重复匹配，将原来的匹配也删掉
                 if(vnMatches21[bestIdx2]>=0)
                 {
                     vnMatches12[vnMatches21[bestIdx2]]=-1;
                     nmatches--;
                 }
+
+                // 次优的匹配关系，双向建立
+                // vnMatches12保存参考帧F1和F2匹配关系，index保存是F1对应特征点索引，值保存的是匹配好的F2特征点索引
                 vnMatches12[i1]=bestIdx2;
                 vnMatches21[bestIdx2]=i1;
                 vMatchedDistance[bestIdx2]=bestDist;
                 nmatches++;
-
+                
+                // Step 5: 计算匹配点旋转角度差所在的直方图
                 if(mbCheckOrientation)
                 {
+                    // 计算匹配特征点的角度差，这里单位是角度不是弧度
                     float rot = F1.mvKeysUn[i1].angle-F2.mvKeysUn[bestIdx2].angle;
                     if(rot<0.0)
                         rot+=360.0f;
+                    
+                    // 将角度差放置到bin中
                     int bin = round(rot*factor);
                     if(bin==HISTO_LENGTH)
                         bin=0;
@@ -486,18 +534,23 @@ int ORBmatcher::SearchForInitialization(Frame &F1, Frame &F2, vector<cv::Point2f
 
     }
 
+    // Step 6: 筛除旋转直方图中“非主流”的部分
+    // 角度一致性的检测，保证匹配点对方向上的一致，而不是会出现那种角度差别较大的情况
     if(mbCheckOrientation)
     {
         int ind1=-1;
         int ind2=-1;
         int ind3=-1;
 
+        // 筛选出在旋转角度差落在直方图区间内数量最多的前三个bin 的索引
         ComputeThreeMaxima(rotHist,HISTO_LENGTH,ind1,ind2,ind3);
 
         for(int i=0; i<HISTO_LENGTH; i++)
         {
             if(i==ind1 || i==ind2 || i==ind3)
                 continue;
+            
+            // 删除掉那些不在前三bin中的匹配对，因为他们不符合主流的方向
             for(size_t j=0, jend=rotHist[i].size(); j<jend; j++)
             {
                 int idx1 = rotHist[i][j];
@@ -512,6 +565,7 @@ int ORBmatcher::SearchForInitialization(Frame &F1, Frame &F2, vector<cv::Point2f
     }
 
     //Update prev matched
+    // Step 7: 将最后通过筛选的匹配好的特征点保存到vbPrevMatched，也就是将保存好的参考帧上的特征点换成当前帧上的特征点
     for(size_t i1=0, iend1=vnMatches12.size(); i1<iend1; i1++)
         if(vnMatches12[i1]>=0)
             vbPrevMatched[i1]=F2.mvKeysUn[vnMatches12[i1]].pt;
