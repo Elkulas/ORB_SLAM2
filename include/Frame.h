@@ -84,6 +84,15 @@ public:
     bool isInFrustum(MapPoint* pMP, float viewingCosLimit);
 
     // Compute the cell of a keypoint (return false if outside the grid)
+    /**
+     * @brief 计算某个特征点所在网格的网格坐标，如果找到特征点所在的网格坐标，记录在nGridPosX,nGridPosY里，返回true，没找到返回false
+     * 
+     * @param[in] kp                    给定的特征点
+     * @param[in & out] posX            特征点所在网格坐标的横坐标
+     * @param[in & out] posY            特征点所在网格坐标的纵坐标
+     * @return true                     如果找到特征点所在的网格坐标，返回true
+     * @return false                    没找到返回false
+     */
     bool PosInGrid(const cv::KeyPoint &kp, int &posX, int &posY);
 
     vector<size_t> GetFeaturesInArea(const float &x, const float  &y, const float  &r, const int minLevel=-1, const int maxLevel=-1) const;
@@ -100,15 +109,19 @@ public:
 
 public:
     // Vocabulary used for relocalization.
+    ///用于重定位的ORB特征字典
     ORBVocabulary* mpORBvocabulary;
 
     // Feature extractor. The right is used only in the stereo case.
+    // ORB特征提取器句柄,其中右侧的提取器句柄只会在双目输入的情况中才会被用到
     ORBextractor* mpORBextractorLeft, *mpORBextractorRight;
 
     // Frame timestamp.
+    // 帧的时间戳
     double mTimeStamp;
 
     // Calibration matrix and OpenCV distortion parameters.
+    // 相机的内参数矩阵
     cv::Mat mK;
     static float fx;
     static float fy;
@@ -116,12 +129,15 @@ public:
     static float cy;
     static float invfx;
     static float invfy;
+    
+    // 去畸变参数
     cv::Mat mDistCoef;
 
     // Stereo baseline multiplied by fx.
     float mbf;
 
     // Stereo baseline in meters.
+    // 相机的基线长度,单位为米
     float mb;
 
     // Threshold close/far points. Close points are inserted from 1 view.
@@ -134,7 +150,10 @@ public:
     // Vector of keypoints (original for visualization) and undistorted (actually used by the system).
     // In the stereo case, mvKeysUn is redundant as images must be rectified.
     // In the RGB-D case, RGB images can be distorted.
+    // 原始左图像提取出的特征点（未校正）
+    // 原始右图像提取出的特征点（未校正）
     std::vector<cv::KeyPoint> mvKeys, mvKeysRight;
+    // 校正mvKeys后的特征点
     std::vector<cv::KeyPoint> mvKeysUn;
 
     // Corresponding stereo coordinate and depth for each keypoint.
@@ -147,17 +166,25 @@ public:
     DBoW2::FeatureVector mFeatVec;
 
     // ORB descriptor, each row associated to a keypoint.
+    // 左目摄像头和右目摄像头特征点对应的描述子
     cv::Mat mDescriptors, mDescriptorsRight;
 
     // MapPoints associated to keypoints, NULL pointer if no association.
+    // 每个特征点对应的MapPoint.如果特征点没有对应的地图点,那么将存储一个空指针
     std::vector<MapPoint*> mvpMapPoints;
 
     // Flag to identify outlier associations.
     std::vector<bool> mvbOutlier;
 
     // Keypoints are assigned to cells in a grid to reduce matching complexity when projecting MapPoints.
+    /// 坐标乘以mfGridElementWidthInv和mfGridElementHeightInv就可以确定在哪个格子
     static float mfGridElementWidthInv;
+    /// 坐标乘以mfGridElementWidthInv和mfGridElementHeightInv就可以确定在哪个格子
     static float mfGridElementHeightInv;
+    // 每个格子分配的特征点数，将图像分成格子，保证提取的特征点比较均匀
+    // FRAME_GRID_ROWS 48
+    // FRAME_GRID_COLS 64
+	///这个向量中存储的是每个图像网格内特征点的id（左图）
     std::vector<std::size_t> mGrid[FRAME_GRID_COLS][FRAME_GRID_ROWS];
 
     // Camera pose.

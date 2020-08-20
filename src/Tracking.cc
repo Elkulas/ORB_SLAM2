@@ -584,23 +584,30 @@ void Tracking::MonocularInitialization()
         // 当前帧特征点必须大于100
         if(mCurrentFrame.mvKeys.size()>100)
         {
+            // 初始化需要两帧，分别是mInitialFrame，mCurrentFrame
             mInitialFrame = Frame(mCurrentFrame);
+            // 用当前帧更新上一帧
             mLastFrame = Frame(mCurrentFrame);
+            // mvbPrevMatched  记录"上一帧"所有特征点
             mvbPrevMatched.resize(mCurrentFrame.mvKeysUn.size());
             for(size_t i=0; i<mCurrentFrame.mvKeysUn.size(); i++)
                 mvbPrevMatched[i]=mCurrentFrame.mvKeysUn[i].pt;
 
+            // 删除前判断一下，来避免出现段错误。不过在这里是多余的判断
+            // 不过在这里是多余的判断，因为前面已经判断过了
             if(mpInitializer)
                 delete mpInitializer;
 
+            // 由当前帧构造初始器 sigma:1.0 iterations:200
             mpInitializer =  new Initializer(mCurrentFrame,1.0,200);
 
+            // 初始化为-1 表示没有任何匹配。这里面存储的是匹配的点的id
             fill(mvIniMatches.begin(),mvIniMatches.end(),-1);
 
             return;
         }
     }
-    else
+    else    //如果单目初始化器已经被创建
     {
         // Try to initialize
         // Step 2: 如果当前帧特征点数太少，则重新构造初始器
@@ -644,8 +651,8 @@ void Tracking::MonocularInitialization()
         cv::Mat Rcw; // Current Camera Rotation
         cv::Mat tcw; // Current Camera Translation
         vector<bool> vbTriangulated; // Triangulated Correspondences (mvIniMatches)
-
-        // Step 5: 通过H模型或者是F模型进行单目的初始化，得到两帧之间相对的运动以及初始的MapPoinys
+        
+        // Step 5: 通过H模型或者是F模型进行单目的初始化，得到两帧之间相对的运动以及初始的MapPoints
         if(mpInitializer->Initialize(
             mCurrentFrame,      // 当前帧
             mvIniMatches,       // 当前帧和参考帧的特征点的匹配关系
@@ -665,12 +672,18 @@ void Tracking::MonocularInitialization()
             }
 
             // Set Frame Poses
+            // Step 7 将初始化的第一帧作为世界坐标系，因此第一帧变换矩阵为单位矩阵
             mInitialFrame.SetPose(cv::Mat::eye(4,4,CV_32F));
+            // 由Rcw和tcw构造Tcw,并赋值给mTcw，mTcw为世界坐标系到相机坐标系的变换矩阵
             cv::Mat Tcw = cv::Mat::eye(4,4,CV_32F);
             Rcw.copyTo(Tcw.rowRange(0,3).colRange(0,3));
             tcw.copyTo(Tcw.rowRange(0,3).col(3));
             mCurrentFrame.SetPose(Tcw);
 
+            // Step 8 创建初始化地图点MapPoints
+            // Initialize函数会得到mvIniP3D，
+            // mvIniP3D是cv::Point3f类型的一个容器，是个存放3D点的临时变量，
+            // CreateInitialMapMonocular将3D点包装成MapPoint类型存入KeyFrame和Map中
             CreateInitialMapMonocular();
         }
     }
