@@ -139,7 +139,7 @@ bool Initializer::Initialize(const Frame &CurrentFrame, const vector<int> &vMatc
         // 从可用集中选取八个点作为最小的一个数据集
         for(size_t j=0; j<8; j++)
         {
-            // 随机产生一对点的id，范围从0-N-1
+            // 随机产生一对点的id，范围从0 - (N-1)
             int randi = DUtils::Random::RandomInt(0,vAvailableIndices.size()-1);
             // idx表示哪一个索引对应的特征点对被选中
             int idx = vAvailableIndices[randi];
@@ -182,14 +182,19 @@ bool Initializer::Initialize(const Frame &CurrentFrame, const vector<int> &vMatc
     threadF.join();
 
     // Compute ratio of scores
+    //通过这个规则来判断谁的评分占比更多一些，注意不是简单的比较绝对评分大小，而是看评分的占比
     float RH = SH/(SH+SF);
 
     // Try to reconstruct from homography or fundamental depending on the ratio (0.40-0.45)
+    // 注意这里更倾向于用H矩阵恢复位姿。如果单应矩阵的评分占比达到了0.4以上,则从单应矩阵恢复运动,否则从基础矩阵恢复运动
     if(RH>0.40)
+        //更偏向于平面，此时从单应矩阵恢复，函数ReconstructH返回bool型结果
         return ReconstructH(vbMatchesInliersH,H,mK,R21,t21,vP3D,vbTriangulated,1.0,50);
     else //if(pF_HF>0.6)
+        // 更偏向于非平面，从基础矩阵恢复
         return ReconstructF(vbMatchesInliersF,F,mK,R21,t21,vP3D,vbTriangulated,1.0,50);
 
+    // 执行到这里说明跑飞了
     return false;
 }
 

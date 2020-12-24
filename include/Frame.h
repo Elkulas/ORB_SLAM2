@@ -95,6 +95,16 @@ public:
      */
     bool PosInGrid(const cv::KeyPoint &kp, int &posX, int &posY);
 
+    /**
+     * @brief 找到在 以x,y为中心,半径为r的圆形内且金字塔层级在[minLevel, maxLevel]的特征点
+     * 
+     * @param[in] x                     特征点坐标x
+     * @param[in] y                     特征点坐标y
+     * @param[in] r                     搜索半径 
+     * @param[in] minLevel              最小金字塔层级
+     * @param[in] maxLevel              最大金字塔层级
+     * @return vector<size_t>           返回搜索到的候选匹配点id
+     */
     vector<size_t> GetFeaturesInArea(const float &x, const float  &y, const float  &r, const int minLevel=-1, const int maxLevel=-1) const;
 
     // Search a match for each keypoint in the left image to a keypoint in the right image.

@@ -578,6 +578,8 @@ void Tracking::StereoInitialization()
 void Tracking::MonocularInitialization()
 {
     // Step 1: 如果单目初始器还没有被创建，则创建。后面如果重新初始化会清除掉这个
+    // 本质上就是将frame中的成员变量，比如提取的特征点位置以及描述子，转移到tracking class中的对应的变量中 //
+    // 比如Frame.mvKeysUn 转移到 Tracking.mvbPrevMatched中
     if(!mpInitializer)
     {
         // Set Reference Frame
